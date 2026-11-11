@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#111111">
+<title>Quick Video Editor</title>
+<style>
+  :root { --bg:#111; --panel:#1c1c1e; --btn:#2c2c2e; --accent:#ff2d6f; --ok:#30d158; --txt:#fff; --muted:#9a9aa0; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--bg); color:var(--txt); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; }
+  body { padding:env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 16px); -webkit-user-select:none; user-select:none; }
+  button { font:inherit; color:var(--txt); background:var(--btn); border:0; border-radius:16px; min-height:56px; padding:10px 12px; font-size:17px; font-weight:700; cursor:pointer; touch-action:manipulation; }
+  button:active { transform:scale(.97); filter:brightness(1.3); }
+  button:disabled { opacity:.35; }
+  button.primary { background:var(--accent); }
+  button.go { background:var(--ok); color:#000; }
+  button.on { outline:3px solid var(--accent); }
+  .wrap { max-width:560px; margin:0 auto; padding:0 12px; }
+  header { display:flex; align-items:center; justify-content:space-between; padding:10px 0; }
+  header h1 { font-size:20px; margin:0; }
+  #start { text-align:center; padding:40px 12px; }
+  #start .big { width:100%; min-height:110px; font-size:24px; border-radius:24px; }
+  #start p { color:var(--muted); font-size:16px; line-height:1.4; }
+  #stage { position:relative; margin:0 auto; background:#000; border-radius:14px; overflow:hidden; max-height:46vh; }
+  #stage video, #stage canvas { position:absolute; inset:0; width:100%; height:100%; }
+  #stage video { object-fit:contain; }
+  #stage canvas { pointer-events:none; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  .row > * { flex:1; }
+  .time { text-align:center; font-variant-numeric:tabular-nums; font-size:18px; font-weight:700; margin-top:8px; }
+  .time small { color:var(--muted); font-weight:500; }
+  #timeline { position:relative; height:64px; margin-top:10px; background:#000; border-radius:12px; touch-action:none; overflow:hidden; }
+  #segs { position:absolute; left:0; right:0; top:0; height:44px; display:flex; }
+  .seg { height:100%; border-right:3px solid #000; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; color:rgba(255,255,255,.85); overflow:hidden; }
+  .seg.cur { box-shadow:inset 0 0 0 3px #fff; }
+  #capbars { position:absolute; left:0; right:0; top:46px; height:16px; }
+  .capbar { position:absolute; top:3px; height:10px; border-radius:5px; background:#ffd60a; }
+  .capbar.sel { background:#fff; }
+  #playhead { position:absolute; top:0; bottom:0; width:4px; margin-left:-2px; background:#fff; box-shadow:0 0 6px #000; pointer-events:none; }
+  .tabs { display:flex; gap:6px; margin-top:14px; }
+  .tabs button { flex:1; background:#000; border:2px solid var(--btn); }
+  .tabs button.active { background:var(--btn); border-color:var(--accent); }
+  .panel { background:var(--panel); border-radius:18px; padding:12px; margin-top:8px; }
+  .hint { color:var(--muted); font-size:14px; margin:2px 2px 4px; line-height:1.35; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:8px; }
+  .cap { background:#000; border-radius:14px; padding:10px; margin-top:10px; border:2px solid transparent; }
+  .cap.sel { border-color:#ffd60a; }
+  .cap textarea { width:100%; font:inherit; font-size:18px; font-weight:700; border-radius:10px; border:0; padding:10px; background:#2c2c2e; color:#fff; resize:vertical; min-height:52px; -webkit-user-select:text; user-select:text; }
+  .cap .meta { color:var(--muted); font-size:14px; margin:6px 2px 0; }
+  .cap button { min-height:48px; font-size:15px; }
+  #exportBox progress { width:100%; height:22px; margin-top:10px; }
+  #result video { width:100%; max-height:40vh; border-radius:12px; margin-top:10px; background:#000; }
+  .hidden { display:none !important; }
+  #toast { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 24px); transform:translateX(-50%); background:#fff; color:#000; font-weight:700; padding:12px 18px; border-radius:14px; opacity:0; transition:opacity .25s; pointer-events:none; z-index:9; max-width:90vw; text-align:center; }
+  #toast.show { opacity:1; }
+  #exportCanvas { position:fixed; left:-10000px; top:0; width:10px; height:10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎬 Quick Editor</h1>
+    <div class="row" style="margin:0;flex:0 0 auto">
+      <button id="undoBtn" style="min-height:44px" disabled>↩️ Undo</button>
+      <button id="newBtn" class="hidden" style="min-height:44px">📂 New</button>
+    </div>
+  </header>
+
+  <div id="start">
+    <button class="big primary" id="pickBtn">📂 Pick a video</button>
+    <p>Pick your edited video from Photos or Files.<br>Everything stays on your phone, nothing gets uploaded.</p>
+  </div>
+  <input type="file" id="fileInput" accept="video/*,.mp4,.mov" class="hidden">
+  <input type="file" id="srtInput" accept=".srt,.vtt,text/plain,application/x-subrip" class="hidden">
+
+  <div id="editor" class="hidden">
+    <div id="stage"><video id="video" playsinline webkit-playsinline preload="auto"></video><canvas id="overlay"></canvas></div>
+    <div class="time"><span id="tNow">0:00.0</span> <small>/ <span id="tTotal">0:00.0</span></small></div>
+    <div class="row">
+      <button id="back1">⏪ 1s</button>
+      <button id="backF">◀ tiny</button>
+      <button id="playBtn" class="primary" style="flex:1.4">▶️ Play</button>
+      <button id="fwdF">tiny ▶</button>
+      <button id="fwd1">1s ⏩</button>
+    </div>
+    <div id="timeline"><div id="segs"></div><div id="capbars"></div><div id="playhead"></div></div>
+
+    <div class="tabs">
+      <button data-tab="cut" class="active">✂️ Cut</button>
+      <button data-tab="text">🔤 Text</button>
+      <button data-tab="export">✅ Save</button>
+    </div>
+
+    <div class="panel" id="tab-cut">
+      <p class="hint">Drag the white line to a spot. The piece with the white box is the one under the line.</p>
+      <button id="splitBtn" style="width:100%;margin-top:6px" class="primary">✂️ Split here</button>
+      <div class="grid2">
+        <button id="trimStartBtn">⬅️ Cut everything before</button>
+        <button id="trimEndBtn">Cut everything after ➡️</button>
+      </div>
+      <button id="deleteBtn" style="width:100%;margin-top:8px">🗑️ Delete this piece</button>
+      <div class="grid2">
+        <button id="moveLBtn">◀ Move piece left</button>
+        <button id="moveRBtn">Move piece right ▶</button>
+      </div>
+      <p class="hint" style="margin-top:10px">To cut out the middle: Split at the start, Split at the end, then Delete the piece in between.</p>
+    </div>
+
+    <div class="panel hidden" id="tab-text">
+      <p class="hint">Words show up starting at the white line. Use "Start now" / "End now" to set when they show.</p>
+      <div class="grid2">
+        <button id="addCapBtn" class="primary">➕ Add text here</button>
+        <button id="importSrtBtn">📄 Load captions (.srt)</button>
+      </div>
+      <div id="allStyle">
+        <p class="hint" style="margin-top:12px">Style for ALL text:</p>
+        <div class="grid3">
+          <button data-allpos="top">⬆️ Top</button><button data-allpos="middle">⏺ Middle</button><button data-allpos="bottom">⬇️ Bottom</button>
+        </div>
+        <div class="grid3">
+          <button data-allsize="s">Small</button><button data-allsize="m">Medium</button><button data-allsize="l">Big</button>
+        </div>
+        <button id="clearCapsBtn" style="width:100%;margin-top:8px">🧹 Remove all text</button>
+      </div>
+      <div id="capList"></div>
+    </div>
+
+    <div class="panel hidden" id="tab-export">
+      <div id="exportBox">
+        <p class="hint">Makes your final video. It plays through once while saving, so a 30 second video takes about 30 seconds. Keep this screen open.</p>
+        <button id="exportBtn" class="go" style="width:100%;min-height:72px;font-size:22px">✅ Make my video</button>
+        <div id="progressWrap" class="hidden">
+          <progress id="prog" max="1" value="0"></progress>
+          <p class="hint" id="progText">Starting…</p>
+          <button id="cancelBtn" style="width:100%">✖️ Stop</button>
+        </div>
+      </div>
+      <div id="result" class="hidden">
+        <video id="resultVideo" playsinline controls></video>
+        <button id="shareBtn" class="go" style="width:100%;margin-top:10px;min-height:72px;font-size:22px">📲 Save to phone</button>
+        <p class="hint">Tap "Save to phone", then choose <b>Save Video</b> to put it in your Photos.</p>
+        <button id="dlBtn" style="width:100%;margin-top:6px">⬇️ Download file instead</button>
+      </div>
+    </div>
+  </div>
+</div>
+<canvas id="exportCanvas"></canvas>
+<div id="toast"></div>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const video = $('video'), overlay = $('overlay'), stage = $('stage');
+const COLORS = ['#ff2d6f','#0a84ff','#30d158','#ff9f0a','#bf5af2','#64d2ff','#ff453a','#ffd60a'];
+const POS = { top:0.17, middle:0.5, bottom:0.72 };
+const SIZE = { s:0.055, m:0.072, l:0.095 };
+const MIN = 0.1;
+
+let state = { segs:[], caps:[] };
+let history = [];
+let duration = 0, curSeg = 0, playing = false, exporting = false, cancelExport = false;
+let selCap = null, nextId = 1, fileName = 'video';
+let audioCtx = null, previewGain = null, recDest = null;
+let lastBlob = null, lastFile = null, srcUrl = null;
+
+// ---------- helpers ----------
+const fmt = t => { t = Math.max(0, t || 0); const m = Math.floor(t/60), s = t - m*60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); };
+const toast = msg => { const el = $('toast'); el.textContent = msg; el.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove('show'), 2200); };
+const snapshot = () => { history.push(JSON.stringify(state)); if (history.length > 60) history.shift(); $('undoBtn').disabled = false; };
+const segLen = s => s.e - s.s;
+const total = () => state.segs.reduce((a, s) => a + segLen(s), 0);
+const offsets = () => { const o = []; let a = 0; for (const s of state.segs) { o.push(a); a += segLen(s); } return o; };
+function outToSrc(t) {
+  const o = offsets(); const n = state.segs.length;
+  for (let i = 0; i < n; i++) { const s = state.segs[i]; if (t < o[i] + segLen(s) || i === n - 1) return { i, src: Math.min(s.e, Math.max(s.s, s.s + (t - o[i]))) }; }
+  return { i:0, src:0 };
+}
+function srcToOut(src) {
+  const o = offsets();
+  for (let i = 0; i < state.segs.length; i++) { const s = state.segs[i]; if (src >= s.s - 1e-3 && src < s.e) return o[i] + (src - s.s); }
+  return null;
+}
+function outNow() {
+  const s = state.segs[curSeg]; if (!s) return 0;
+  return offsets()[curSeg] + Math.min(segLen(s), Math.max(0, video.currentTime - s.s));
+}
+const srcNow = () => video.currentTime;
+
+// ---------- captions drawing (shared by preview + export) ----------
+function wrapLines(ctx, text, maxW) {
+  const out = [];
+  for (const para of String(text).split(/\n/)) {
+    const words = para.split(/\s+/).filter(Boolean); let line = '';
+    for (const w of words) { const test = line ? line + ' ' + w : w; if (ctx.measureText(test).width > maxW && line) { out.push(line); line = w; } else line = test; }
+    if (line) out.push(line);
+  }
+  return out;
+}
+function drawCaptions(ctx, W, H, src) {
+  for (const c of state.caps) {
+    if (!(src >= c.s && src < c.e) || !c.text.trim()) continue;
+    const fs = Math.round(W * (SIZE[c.size] || SIZE.m));
+    ctx.font = `900 ${fs}px -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.miterLimit = 2;
+    const lines = wrapLines(ctx, c.text, W * 0.86);
+    const lh = fs * 1.18; const cy = H * (POS[c.pos] || POS.bottom);
+    let y = cy - (lines.length - 1) * lh / 2;
+    for (const ln of lines) {
+      ctx.lineWidth = Math.max(2, fs * 0.2); ctx.strokeStyle = '#000'; ctx.strokeText(ln, W / 2, y);
+      ctx.fillStyle = '#fff'; ctx.fillText(ln, W / 2, y); y += lh;
+    }
+  }
+}
+function drawOverlay() {
+  const r = stage.getBoundingClientRect(); const dpr = window.devicePixelRatio || 1;
+  const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+  if (overlay.width !== w || overlay.height !== h) { overlay.width = w; overlay.height = h; }
+  const ctx = overlay.getContext('2d'); ctx.clearRect(0, 0, w, h);
+  drawCaptions(ctx, w, h, srcNow());
+}
+
+// ---------- UI render ----------
+function renderTimeline() {
+  const T = total() || 1; const segsEl = $('segs'); segsEl.innerHTML = '';
+  state.segs.forEach((s, i) => {
+    const d = document.createElement('div'); d.className = 'seg' + (i === curSeg ? ' cur' : '');
+    d.style.width = (segLen(s) / T * 100) + '%'; d.style.background = COLORS[s.c % COLORS.length];
+    d.textContent = segLen(s) / T > 0.06 ? (i + 1) : ''; segsEl.appendChild(d);
+  });
+  const bars = $('capbars'); bars.innerHTML = '';
+  for (const c of state.caps) {
+    const a = srcToOut(c.s); if (a === null) continue;
+    let b = srcToOut(Math.max(c.s, c.e - 0.01)); if (b === null || b < a) b = a + Math.min(c.e - c.s, T - a);
+    const d = document.createElement('div'); d.className = 'capbar' + (c.id === selCap ? ' sel' : '');
+    d.style.left = (a / T * 100) + '%'; d.style.width = Math.max(0.8, (b - a) / T * 100) + '%'; bars.appendChild(d);
+  }
+  renderPlayhead();
+}
+function renderPlayhead() {
+  const T = total() || 1, t = outNow();
+  $('playhead').style.left = (t / T * 100) + '%';
+  $('tNow').textContent = fmt(t); $('tTotal').textContent = fmt(T);
+  document.querySelectorAll('#segs .seg').forEach((el, i) => el.classList.toggle('cur', i === curSeg));
+}
+function renderCaps() {
+  const list = $('capList'); list.innerHTML = '';
+  const sorted = [...state.caps].sort((a, b) => a.s - b.s);
+  if (!sorted.length) { list.innerHTML = '<p class="hint" style="margin-top:12px">No text yet.</p>'; }
+  for (const c of sorted) {
+    const box = document.createElement('div'); box.className = 'cap' + (c.id === selCap ? ' sel' : '');
+    const o = srcToOut(c.s);
+    box.innerHTML = `<textarea rows="2" placeholder="Type your words"></textarea>
+      <div class="meta">${o === null ? '⚠️ This part was cut out' : 'Shows at ' + fmt(o) + ' for ' + (c.e - c.s).toFixed(1) + 's'}</div>
+      <div class="grid3"><button data-a="start">⏱ Start now</button><button data-a="end">⏱ End now</button><button data-a="go">👀 Go to</button></div>
+      <div class="grid3"><button data-a="top" class="${c.pos==='top'?'on':''}">Top</button><button data-a="middle" class="${c.pos==='middle'?'on':''}">Middle</button><button data-a="bottom" class="${c.pos==='bottom'?'on':''}">Bottom</button></div>
+      <div class="grid3"><button data-a="s" class="${c.size==='s'?'on':''}">Small</button><button data-a="m" class="${c.size==='m'?'on':''}">Medium</button><button data-a="l" class="${c.size==='l'?'on':''}">Big</button></div>
+      <button data-a="del" style="width:100%;margin-top:8px">🗑️ Delete this text</button>`;
+    const ta = box.querySelector('textarea'); ta.value = c.text;
+    ta.addEventListener('focus', () => { snapshot(); selCap = c.id; renderTimeline(); });
+    ta.addEventListener('input', () => { c.text = ta.value; drawOverlay(); });
+    box.querySelectorAll('button').forEach(b => b.addEventListener('click', () => capAction(c, b.dataset.a)));
+    list.appendChild(box);
+  }
+}
+function capAction(c, a) {
+  selCap = c.id;
+  if (a === 'go') { const o = srcToOut(c.s); if (o !== null) seekOut(o + 0.01); else toast('That part was cut out'); renderTimeline(); renderCaps(); return; }
+  snapshot();
+  const now = srcNow();
+  if (a === 'start') { c.s = now; if (c.e <= c.s + MIN) c.e = Math.min(duration, c.s + 2); }
+  else if (a === 'end') { c.e = now; if (c.e <= c.s + MIN) c.s = Math.max(0, c.e - 2); toast('Text ends here'); }
+  else if (a in POS) c.pos = a;
+  else if (a in SIZE) c.size = a;
+  else if (a === 'del') { state.caps = state.caps.filter(x => x !== c); selCap = null; }
+  renderAll();
+}
+function renderAll() { renderTimeline(); renderCaps(); drawOverlay(); }
+
+// ---------- playback ----------
+function seekOut(t) {
+  const T = total(); t = Math.max(0, Math.min(T, t));
+  const r = outToSrc(t); curSeg = r.i;
+  // keep a hair inside the segment so the frame shown belongs to it
+  const s = state.segs[r.i]; let src = r.src; if (src >= s.e) src = Math.max(s.s, s.e - 0.03);
+  video.currentTime = src; renderPlayhead(); drawOverlay();
+}
+function play() {
+  if (!state.segs.length) return;
+  if (outNow() >= total() - 0.05) seekOut(0);
+  const s = state.segs[curSeg]; if (video.currentTime < s.s || video.currentTime >= s.e) video.currentTime = s.s;
+  playing = true; $('playBtn').textContent = '⏸ Pause';
+  const p = video.play(); if (p && p.catch) p.catch(() => { pause(); });
+  requestAnimationFrame(tick);
+}
+function pause() { playing = false; video.pause(); $('playBtn').textContent = '▶️ Play'; renderPlayhead(); drawOverlay(); }
+function tick() {
+  if (!playing) return;
+  const s = state.segs[curSeg];
+  if (s && video.currentTime >= s.e - 0.02) {
+    if (curSeg + 1 < state.segs.length) {
+      curSeg++; const n = state.segs[curSeg];
+      if (Math.abs(n.s - video.currentTime) > 0.06) video.currentTime = n.s;
+    } else { pause(); video.currentTime = Math.max(s.s, s.e - 0.03); return; }
+  }
+  renderPlayhead(); drawOverlay();
+  requestAnimationFrame(tick);
+}
+video.addEventListener('ended', () => { if (playing && !exporting) pause(); });
+video.addEventListener('seeked', () => { if (!exporting) drawOverlay(); });
+
+// ---------- loading ----------
+$('pickBtn').onclick = () => $('fileInput').click();
+$('newBtn').onclick = () => { if (confirm('Open a different video? Your changes here will be lost.')) $('fileInput').click(); };
+$('fileInput').onchange = e => { const f = e.target.files[0]; if (f) loadFile(f); e.target.value = ''; };
+function loadFile(f) {
+  pause();
+  if (srcUrl) URL.revokeObjectURL(srcUrl);
+  srcUrl = URL.createObjectURL(f); fileName = (f.name || 'video').replace(/\.[^.]+$/, '');
+  video.src = srcUrl; video.load();
+  video.onloadedmetadata = async () => {
+    duration = video.duration;
+    if (!isFinite(duration)) { // some files report Infinity until scanned
+      await new Promise(r => { video.currentTime = 1e7; video.ondurationchange = r; setTimeout(r, 1500); });
+      duration = video.duration; video.currentTime = 0;
+    }
+    state = { segs:[{ s:0, e:duration, c:0 }], caps:[] }; history = []; $('undoBtn').disabled = true; curSeg = 0; selCap = null;
+    stage.style.aspectRatio = video.videoWidth + ' / ' + video.videoHeight;
+    stage.style.width = 'min(100%, calc(46vh * ' + (video.videoWidth / video.videoHeight) + '))';
+    $('start').classList.add('hidden'); $('editor').classList.remove('hidden'); $('newBtn').classList.remove('hidden');
+    $('result').classList.add('hidden');
+    renderAll(); setTimeout(drawOverlay, 50);
+  };
+  video.onerror = () => toast('Could not open that video');
+}
+
+// ---------- timeline scrubbing ----------
+const tl = $('timeline');
+function scrubAt(ev) { const r = tl.getBoundingClientRect(); const x = Math.max(0, Math.min(r.width, ev.clientX - r.left)); seekOut(x / r.width * total()); }
+tl.addEventListener('pointerdown', ev => { if (exporting) return; if (playing) pause(); tl.setPointerCapture(ev.pointerId); scrubAt(ev); tl._drag = true; });
+tl.addEventListener('pointermove', ev => { if (tl._drag) scrubAt(ev); });
+const endDrag = () => { tl._drag = false; renderTimeline(); };
+tl.addEventListener('pointerup', endDrag); tl.addEventListener('pointercancel', endDrag);
+
+$('playBtn').onclick = () => playing ? pause() : play();
+const nudge = d => { if (playing) pause(); seekOut(outNow() + d); };
+$('back1').onclick = () => nudge(-1); $('fwd1').onclick = () => nudge(1);
+$('backF').onclick = () => nudge(-1/30); $('fwdF').onclick = () => nudge(1/30);
+
+// ---------- cut tools ----------
+let colorN = 1;
+$('splitBtn').onclick = () => {
+  pause(); const i = curSeg, s = state.segs[i], t = srcNow();
+  if (t - s.s < MIN || s.e - t < MIN) { toast('Move the line a bit away from the edge'); return; }
+  snapshot();
+  state.segs.splice(i, 1, { s:s.s, e:t, c:s.c }, { s:t, e:s.e, c:colorN++ });
+  curSeg = i + 1; video.currentTime = t; toast('✂️ Split!'); renderAll();
+};
+$('deleteBtn').onclick = () => {
+  pause();
+  if (state.segs.length < 2) { toast('Split first, then delete a piece'); return; }
+  snapshot(); const o = offsets()[curSeg]; state.segs.splice(curSeg, 1);
+  seekOut(Math.min(o, total() - 0.01)); toast('🗑️ Piece deleted'); renderAll();
+};
+$('trimStartBtn').onclick = () => {
+  pause(); const r = outToSrc(outNow()); const s = state.segs[r.i];
+  if (r.src >= s.e - MIN) { toast('Too close to the end'); return; }
+  snapshot(); state.segs = state.segs.slice(r.i); state.segs[0] = { ...state.segs[0], s:r.src };
+  curSeg = 0; video.currentTime = r.src; toast('Cut the start'); renderAll();
+};
+$('trimEndBtn').onclick = () => {
+  pause(); const r = outToSrc(outNow()); const s = state.segs[r.i];
+  if (r.src <= s.s + MIN) { toast('Too close to the start'); return; }
+  snapshot(); state.segs = state.segs.slice(0, r.i + 1); const L = state.segs.length - 1; state.segs[L] = { ...state.segs[L], e:r.src };
+  curSeg = L; video.currentTime = Math.max(s.s, r.src - 0.03); toast('Cut the end'); renderAll();
+};
+function movePiece(d) {
+  pause(); const j = curSeg + d; if (j < 0 || j >= state.segs.length) { toast(state.segs.length < 2 ? 'Split first to make pieces' : 'Can\'t move further'); return; }
+  snapshot(); const a = state.segs; [a[curSeg], a[j]] = [a[j], a[curSeg]]; curSeg = j;
+  video.currentTime = a[j].s; renderAll();
+}
+$('moveLBtn').onclick = () => movePiece(-1); $('moveRBtn').onclick = () => movePiece(1);
+$('undoBtn').onclick = () => {
+  if (!history.length || exporting) return; pause();
+  const keepOut = outNow(); state = JSON.parse(history.pop()); $('undoBtn').disabled = !history.length;
+  seekOut(Math.min(keepOut, total())); renderAll(); toast('↩️ Undone');
+};
+
+// ---------- text tools ----------
+$('addCapBtn').onclick = () => {
+  pause(); snapshot(); const s = srcNow(); const last = state.caps[state.caps.length - 1];
+  const c = { id:nextId++, text:'Your text', s, e:Math.min(duration, s + 2.5), pos:last ? last.pos : 'middle', size:last ? last.size : 'm' };
+  state.caps.push(c); selCap = c.id; renderAll();
+  setTimeout(() => { const ta = document.querySelector('.cap.sel textarea'); if (ta) { ta.focus(); ta.select(); } }, 50);
+};
+$('importSrtBtn').onclick = () => $('srtInput').click();
+$('srtInput').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  const caps = parseSrt(await f.text());
+  if (!caps.length) { toast('No captions found in that file'); return; }
+  snapshot(); const style = state.caps[0] || { pos:'bottom', size:'m' };
+  for (const c of caps) state.caps.push({ id:nextId++, text:c.text, s:c.s, e:c.e, pos:style.pos, size:style.size });
+  renderAll(); toast('📄 Loaded ' + caps.length + ' captions');
+};
+function parseSrt(txt) {
+  const out = []; const ts = s => { const m = s.trim().match(/(?:(\d+):)?(\d+):(\d+)[,.](\d+)/); if (!m) return null; return (+(m[1]||0))*3600 + (+m[2])*60 + (+m[3]) + (+m[4]) / Math.pow(10, m[4].length); };
+  const blocks = txt.replace(/\r/g, '').replace(/^\uFEFF/, '').split(/\n\s*\n/);
+  for (const b of blocks) {
+    const lines = b.split('\n').filter(l => l.trim() !== ''); const k = lines.findIndex(l => l.includes('-->')); if (k < 0) continue;
+    const [a, z] = lines[k].split('-->'); const s = ts(a), e = ts(z); if (s === null || e === null) continue;
+    const text = lines.slice(k + 1).join('\n').replace(/<[^>]+>/g, '').replace(/\{[^}]+\}/g, '').trim();
+    if (text) out.push({ s, e, text });
+  }
+  return out;
+}
+document.querySelectorAll('[data-allpos]').forEach(b => b.onclick = () => { if (!state.caps.length) return toast('Add some text first'); snapshot(); state.caps.forEach(c => c.pos = b.dataset.allpos); renderAll(); });
+document.querySelectorAll('[data-allsize]').forEach(b => b.onclick = () => { if (!state.caps.length) return toast('Add some text first'); snapshot(); state.caps.forEach(c => c.size = b.dataset.allsize); renderAll(); });
+$('clearCapsBtn').onclick = () => { if (!state.caps.length) return; if (!confirm('Remove all text?')) return; snapshot(); state.caps = []; selCap = null; renderAll(); };
+
+// ---------- tabs ----------
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('active', x === b));
+  ['cut','text','export'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+  if (b.dataset.tab === 'text') renderCaps();
+});
+
+// ---------- export (canvas + MediaRecorder: works on iOS Safari 14.5+ and Chrome) ----------
+function ensureAudio() {
+  try {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext; audioCtx = new AC();
+      const src = audioCtx.createMediaElementSource(video);
+      previewGain = audioCtx.createGain(); src.connect(previewGain); previewGain.connect(audioCtx.destination);
+      recDest = audioCtx.createMediaStreamDestination(); src.connect(recDest);
+    }
+    if (audioCtx.state !== 'running') audioCtx.resume();
+  } catch (err) { console.warn('audio setup failed', err); }
+}
+function pickMime() {
+  // iPhone/Safari: plain 'video/mp4' records H.264 + AAC. Chrome needs explicit codecs (AAC only on Mac/Windows).
+  const isWebKit = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|OPR/.test(navigator.userAgent);
+  const aac = ['video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1,mp4a'];
+  const opts = isWebKit ? aac.concat(['video/mp4','video/mp4;codecs=avc1,opus'])
+                        : aac.concat(['video/mp4;codecs=avc1,opus','video/mp4;codecs=avc1','video/mp4','video/webm;codecs=h264,opus','video/webm;codecs=vp9,opus','video/webm']);
+  if (!window.MediaRecorder) return null;
+  for (const m of opts) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch (e) {} }
+  return '';
+}
+const waitSeek = t => new Promise(res => { const done = () => { video.removeEventListener('seeked', done); res(); }; video.addEventListener('seeked', done); video.currentTime = t; setTimeout(done, 3000); });
+
+$('exportBtn').onclick = async () => {
+  if (exporting || !state.segs.length) return;
+  ensureAudio(); // must run inside the tap for iOS
+  const mime = pickMime();
+  if (mime === null) { alert('This browser can\'t make videos. Please update iOS / use Safari.'); return; }
+  pause(); exporting = true; cancelExport = false;
+  $('exportBtn').classList.add('hidden'); $('progressWrap').classList.remove('hidden'); $('result').classList.add('hidden');
+  document.querySelectorAll('button').forEach(b => { if (b.id !== 'cancelBtn') b.disabled = true; });
+  try {
+    const blob = await runExport(mime);
+    if (blob) showResult(blob);
+  } catch (err) { console.error(err); alert('Export failed: ' + (err && err.message || err)); }
+  finally {
+    exporting = false; if (previewGain) previewGain.gain.value = 1;
+    document.querySelectorAll('button').forEach(b => b.disabled = false); $('undoBtn').disabled = !history.length;
+    $('exportBtn').classList.remove('hidden'); $('progressWrap').classList.add('hidden');
+    seekOut(0); renderAll();
+  }
+};
+$('cancelBtn').onclick = () => { cancelExport = true; };
+
+async function runExport(mime) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const scale = Math.min(1, 1920 / Math.max(vw, vh));
+  const W = Math.round(vw * scale / 2) * 2, H = Math.round(vh * scale / 2) * 2;
+  const cv = $('exportCanvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const draw = () => { ctx.drawImage(video, 0, 0, W, H); drawCaptions(ctx, W, H, video.currentTime); };
+  const stream = cv.captureStream(30);
+  if (recDest) recDest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+  if (previewGain) previewGain.gain.value = 0; // silent while exporting
+  const bps = Math.round(Math.min(16e6, Math.max(4e6, W * H * 30 * 0.15)));
+  const rec = new MediaRecorder(stream, Object.assign({ videoBitsPerSecond:bps, audioBitsPerSecond:160000 }, mime ? { mimeType:mime } : {}));
+  const chunks = []; rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(r => rec.onstop = r);
+
+  const T = total(); const offs = offsets(); const segs = state.segs.map(s => ({ ...s }));
+  await waitSeek(segs[0].s); draw();
+  rec.start(1000);
+  let recPaused = false;
+  const useRVFC = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+  for (let i = 0; i < segs.length && !cancelExport; i++) {
+    const s = segs[i];
+    if (i > 0 && Math.abs(video.currentTime - s.s) > 0.06) {
+      video.pause(); try { rec.pause(); recPaused = true; } catch (e) {}
+      await waitSeek(s.s); draw();
+      if (recPaused) { try { rec.resume(); } catch (e) {} recPaused = false; }
+    }
+    curSeg = i;
+    await video.play();
+    await new Promise(resolve => {
+      let done = false;
+      const finish = () => { if (done) return; done = true; clearInterval(iv); resolve(); };
+      const progress = () => {
+        const t = video.currentTime;
+        $('prog').value = Math.min(1, (offs[i] + Math.max(0, t - s.s)) / T);
+        $('progText').textContent = 'Making your video… ' + Math.round($('prog').value * 100) + '%  (keep this screen open)';
+        if (cancelExport || t >= s.e - 0.01 || video.ended || (video.paused && t >= s.e - 0.1)) finish();
+      };
+      const iv = setInterval(progress, 50);
+      const step = () => {
+        if (done) return;
+        draw(); progress();
+        if (useRVFC) video.requestVideoFrameCallback(step); else requestAnimationFrame(step);
+      };
+      step();
+    });
+  }
+  video.pause();
+  if (rec.state !== 'inactive') rec.stop();
+  await stopped;
+  stream.getVideoTracks().forEach(t => t.stop());
+  if (cancelExport) { toast('Stopped'); return null; }
+  const type = (mime || chunks[0] && chunks[0].type || 'video/mp4').split(';')[0];
+  return new Blob(chunks, { type });
+}
+
+function showResult(blob) {
+  lastBlob = blob;
+  const ext = blob.type.includes('webm') ? 'webm' : 'mp4';
+  const d = new Date(); const p = n => String(n).padStart(2, '0');
+  const name = `${fileName}-edit-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.${ext}`;
+  lastFile = new File([blob], name, { type:blob.type });
+  const rv = $('resultVideo'); if (rv.src) URL.revokeObjectURL(rv.src); rv.src = URL.createObjectURL(blob);
+  $('result').classList.remove('hidden');
+  window.__lastExport = { blob, name, type:blob.type, size:blob.size };
+  toast('✅ Done! Tap Save to phone');
+}
+$('shareBtn').onclick = async () => {
+  if (!lastFile) return;
+  if (navigator.canShare && navigator.canShare({ files:[lastFile] })) {
+    try { await navigator.share({ files:[lastFile] }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  download();
+};
+$('dlBtn').onclick = () => download();
+function download() {
+  if (!lastFile) return; const a = document.createElement('a'); a.href = URL.createObjectURL(lastFile); a.download = lastFile.name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+}
+
+window.addEventListener('resize', () => drawOverlay());
+// test hook
+window.__editor = { get state() { return state; }, seekOut, total, outNow, parseSrt, loadFile };
+})();
+</script>
+</body>
+</html>
